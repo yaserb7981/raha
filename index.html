@@ -515,6 +515,27 @@ input[type=date]{direction:ltr;text-align:right}
   font-size:12px;font-weight:800;text-align:center;padding:6px;transform:translateY(-100%);transition:.3s}
 .offline-pill.show{transform:none}
 
+/* ─────────────── UX-POLISH-V3 ─────────────── */
+/* heatmap: ردیف‌ها ارتفاع نداشتند و خانه‌ها به هم می‌ریختند */
+.heatmap{grid-template-rows:repeat(7,13px);grid-auto-columns:13px;grid-auto-flow:column;gap:4px}
+.hm-cell{width:13px;height:13px}
+@media(max-width:380px){.heatmap{grid-template-rows:repeat(7,12px);grid-auto-columns:12px}.hm-cell{width:12px;height:12px}}
+/* هدف لمسی بزرگ‌تر برای حذف */
+.j-del{min-width:34px;min-height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;font-size:15px}
+.j-del:active{background:rgba(251,113,133,.15);color:#fb7185}
+/* چیپ‌ها کمی بلندتر (لمس راحت‌تر) */
+.chip{min-height:38px}
+/* خوانایی برچسب‌های ریز */
+.mini-lbl{font-size:11.5px}
+.nav-btn i{font-size:11.5px}
+.gh-field{width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px;color:var(--txt);font-family:inherit;font-size:14px}
+.gh-field:focus{outline:none;border-color:rgba(129,140,248,.65);box-shadow:0 0 0 3px rgba(129,140,248,.15)}
+.gh-field::placeholder{color:var(--txt-3)}
+
+.hm-cell.before{opacity:1;background:rgba(255,255,255,.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.hm-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--txt-3);margin-top:10px}
+.hm-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:5px;vertical-align:-1px}
+
 </style>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%95%8A%EF%B8%8F%3C/text%3E%3C/svg%3E">
@@ -691,6 +712,7 @@ input[type=date]{direction:ltr;text-align:right}
       <div class="card">
         <div class="card-head"><h2>۱۲۰ روز گذشته</h2><span class="pill" id="heat-legend">🟩 پاک · 🟥 لغزش</span></div>
         <div class="heatmap" id="heatmap"></div>
+        <div class="hm-legend"><span><i style="background:rgba(255,255,255,.045);box-shadow:inset 0 0 0 1px rgba(255,255,255,.09)"></i>قبل از شروع</span><span><i style="background:rgba(52,211,153,.5)"></i>روز پاک</span><span><i style="background:rgba(251,113,133,.85)"></i>لغزش</span><span><i style="background:linear-gradient(135deg,#818cf8,#e879f9)"></i>امروز</span><span><i style="background:rgba(255,255,255,.055);outline:1px solid rgba(255,255,255,.28);outline-offset:1px"></i>چک‌این ثبت‌شده</span></div>
       </div>
 
       <div class="card">
@@ -821,6 +843,26 @@ input[type=date]{direction:ltr;text-align:right}
             <b>اگر روزشماری عوض شد</b> (لغزش ثبت شد یا تاریخ شروع تغییر کرد)، همین دکمه را بزن و دوباره وارد کن — تقویم با اپ هم‌قدم می‌شود.
           </div>
         </div>
+      </div>
+
+      <div class="card" id="gh-card">
+        <div class="card-head"><h2>پشتیبان خودکار روی گیت‌هاب</h2></div>
+        <p class="hint">هر روز خودش یک نسخهٔ <b>رمزنگاری‌شده</b> از تمام داده‌هایت را در ریپوی گیت‌هاب می‌گذارد. رمزنگاری روی همین دستگاه انجام می‌شود، پس در گیت‌هاب فقط دادهٔ قفل‌شده است. توکن و رمز فقط در همین مرورگر می‌مانند و هرگز داخل پشتیبان نمی‌روند.</p>
+        <div class="row" style="gap:8px;margin-bottom:8px">
+          <input class="gh-field grow" id="gh-owner" placeholder="owner (مثلاً yaserb7981)" style="margin:0">
+          <input class="gh-field grow" id="gh-repo" placeholder="repo (مثلاً raha)" style="margin:0">
+        </div>
+        <input class="gh-field" id="gh-token" type="password" placeholder="توکن گیت‌هاب — github_pat_… (فقط Content: Read and write)" autocomplete="off">
+        <input class="gh-field" id="gh-pass" type="password" placeholder="رمز رمزنگاری — خودت انتخاب کن و یادت باشد" autocomplete="off">
+        <label class="check-row" style="margin:6px 0 10px">
+          <input type="checkbox" id="gh-auto">
+          <span>هر روز خودکار انجام بده</span>
+        </label>
+        <div class="row">
+          <button class="btn btn-primary grow" id="gh-backup">☁️ پشتیبان‌گیری الان</button>
+          <button class="btn btn-ghost grow" id="gh-restore">♻️ بازیابی از گیت‌هاب</button>
+        </div>
+        <div class="hint" id="gh-status" style="margin:12px 0 0"></div>
       </div>
 
       <div class="card">
