@@ -42,6 +42,7 @@ async function del(path) {
 async function refresh() {
   STATE = await api('/api/state');
   render();
+  try { ghScheduleAuto(); } catch (e) { }
 }
 
 /* ───────────────────────────── toast ───────────────────────────── */
@@ -301,10 +302,12 @@ function drawUrgeChart(data) {
   const svg = $('#urge-chart');
   const W = 600, H = 180, pad = 10;
   if (!data || !data.length) {
-    svg.innerHTML = `<text x="300" y="95" text-anchor="middle" fill="#6b7297" font-size="13"
-      font-family="Vazirmatn">هنوز داده‌ای نیست — اولین موج رو ثبت کن</text>`;
+    svg.setAttribute('viewBox', '0 0 600 60');
+    svg.innerHTML = `<text x="300" y="34" text-anchor="middle" fill="#6b7297" font-size="13"
+      font-family="Vazirmatn">هنوز موجی ثبت نشده — با دکمهٔ «وسوسه شدم» اولین موج رو ثبت کن</text>`;
     return;
   }
+  svg.setAttribute('viewBox', '0 0 600 180');
   const n = data.length;
   const slots = Math.max(n, 14);                 // keep bars slim with few points
   const maxC = Math.max(1, ...data.map(d => d.count));
@@ -460,6 +463,7 @@ function renderSettings() {
   }
 
   try { renderIcsStatus(); } catch (e) { }
+  try { ghRenderCard(); } catch (e) { }
 
   const fz = $('#freeze-count');
   if (fz) fz.textContent = fa(S.freezes_available);
@@ -909,6 +913,204 @@ if ($('#btn-ics')) $('#btn-ics').onclick = downloadIcs;
 if ($('#btn-ics-help')) $('#btn-ics-help').onclick = function () {
   const s = $('#ics-steps'); if (s) s.classList.toggle('hidden');
 };
+
+
+/* ─────────── پشتیبان خودکار رمزنگاری‌شده روی گیت‌هاب ─────────── */
+const GH_KEY = 'raha:gh';
+function ghCfg() {
+  try { return JSON.parse(localStorage.getItem(GH_KEY) || '{}'); } catch (e) { return {}; }
+}
+function ghSaveCfg(patch) {
+  const o = Object.assign({ owner: 'yaserb7981', repo: 'raha', auto: '1' }, ghCfg(), patch || {});
+  try { localStorage.setItem(GH_KEY, JSON.stringify(o)); } catch (e) { }
+  return o;
+}
+function b64FromBytes(bytes) {
+  let bin = ''; const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+function bytesFromB64(s) {
+  const bin = atob(s); const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function ghDeriveKey(pass, salt) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: 150000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function ghEncrypt(obj, pass) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await ghDeriveKey(pass, salt);
+  const pt = new TextEncoder().encode(JSON.stringify(obj));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, pt);
+  return JSON.stringify({
+    v: 1, app: 'raha', kind: 'encrypted-backup',
+    alg: 'AES-GCM-256 / PBKDF2-SHA256-150k',
+    salt: b64FromBytes(salt), iv: b64FromBytes(iv), ct: b64FromBytes(new Uint8Array(ct)),
+    at: new Date().toISOString()
+  }, null, 0);
+}
+async function ghDecrypt(envStr, pass) {
+  const env = JSON.parse(envStr);
+  if (!env || !env.ct) throw new Error('فایل پشتیبان قابل خواندن نیست');
+  const key = await ghDeriveKey(pass, bytesFromB64(env.salt));
+  const pt = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: bytesFromB64(env.iv) }, key, bytesFromB64(env.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function ghExportData() {
+  let data;
+  if (window.RAHA_OFFLINE) data = window.RAHA_OFFLINE.load();
+  else {
+    const r = await fetch('/api/export', { cache: 'no-store' });
+    if (!r.ok) throw new Error('خروجی سرور ناموفق بود');
+    data = await r.json();
+  }
+  if (data && data.settings) {
+    Object.keys(data.settings).forEach(k => { if (/^gh_/i.test(k)) delete data.settings[k]; });
+  }
+  return data;
+}
+async function ghPutFile(owner, repo, token, path, text, message) {
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path;
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json'
+  };
+  let sha = null;
+  const g = await fetch(url, { headers: headers, cache: 'no-store' });
+  if (g.ok) { try { sha = (await g.json()).sha; } catch (e) { } }
+  else if (g.status !== 404) throw new Error('GitHub ' + g.status);
+  const body = {
+    message: message,
+    content: b64FromBytes(new TextEncoder().encode(text)),
+    branch: 'main'
+  };
+  if (sha) body.sha = sha;
+  const r = await fetch(url, { method: 'PUT', headers: headers, body: JSON.stringify(body) });
+  if (!r.ok) {
+    let msg = 'GitHub ' + r.status;
+    try { msg += ' — ' + (await r.json()).message; } catch (e) { }
+    throw new Error(msg);
+  }
+  return true;
+}
+async function ghGetFile(owner, repo, token, path) {
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path;
+  const headers = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const r = await fetch(url + '?t=' + Date.now(), { headers: headers, cache: 'no-store' });
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error('GitHub ' + r.status);
+  const js = await r.json();
+  let b64 = String(js.content || '').replace(/\n/g, '');
+  return new TextDecoder().decode(bytesFromB64(b64));
+}
+function ghStatusLine(msg, bad) {
+  const el = $('#gh-status'); if (!el) return;
+  el.innerHTML = '<span style="color:' + (bad ? '#fb7185' : '#34d399') + '">' + esc(msg) + '</span>';
+}
+function ghRenderCard() {
+  const c = ghCfg();
+  if ($('#gh-owner')) $('#gh-owner').value = c.owner || 'yaserb7981';
+  if ($('#gh-repo')) $('#gh-repo').value = c.repo || 'raha';
+  if ($('#gh-token')) $('#gh-token').value = c.token || '';
+  if ($('#gh-pass')) $('#gh-pass').value = c.pass || '';
+  if ($('#gh-auto')) $('#gh-auto').checked = (c.auto !== '0');
+  const el = $('#gh-status'); if (!el) return;
+  if (!c.token || !c.pass) {
+    el.innerHTML = 'برای فعال شدن، توکن و یک رمز رمزنگاری بگذار. تا آن موقع فقط پشتیبان دستی (خروجی JSON) کار می‌کند.';
+    return;
+  }
+  el.innerHTML = 'ریپو: <b>' + esc((c.owner || '') + '/' + (c.repo || '')) + '</b> · ' +
+    (c.auto === '0' ? 'خودکار: خاموش' : 'خودکار: روزی یک بار') +
+    (c.last ? '<br>آخرین پشتیبان: ' + fa(String(c.last).slice(0, 16).replace('T', ' ساعت ')) : '<br>هنوز پشتیبانی گرفته نشده.');
+}
+async function ghBackup(silent) {
+  const c = ghCfg();
+  const owner = (($('#gh-owner') && $('#gh-owner').value) || c.owner || 'yaserb7981').trim();
+  const repo = (($('#gh-repo') && $('#gh-repo').value) || c.repo || 'raha').trim();
+  const token = (($('#gh-token') && $('#gh-token').value) || c.token || '').trim();
+  const pass = (($('#gh-pass') && $('#gh-pass').value) || c.pass || '').trim();
+  if (!token || !pass) { if (!silent) toast('اول توکن و رمز رمزنگاری را وارد کن'); return false; }
+  ghSaveCfg({ owner: owner, repo: repo, token: token, pass: pass });
+  if (!silent) ghStatusLine('در حال ساخت پشتیبان…');
+  try {
+    const data = await ghExportData();
+    const env = await ghEncrypt(data, pass);
+    await ghPutFile(owner, repo, token, 'backup/raha-backup.enc', env, 'رها: پشتیبان رمزنگاری‌شده');
+    const day = todayLocal();
+    if (c.last_day !== day) {
+      await ghPutFile(owner, repo, token, 'backup/history/raha-' + day + '.enc', env, 'رها: نسخهٔ ' + day);
+      ghSaveCfg({ last_day: day });
+    }
+    const at = new Date().toISOString();
+    ghSaveCfg({ last: at, last_ok: '1' });
+    ghRenderCard();
+    if (!silent) toast('پشتیبان رمزنگاری‌شده روی گیت‌هاب رفت ✅', 3500);
+    return true;
+  } catch (e) {
+    ghSaveCfg({ last_err: String(e.message || e), last_try: new Date().toISOString() });
+    if (!silent) { ghStatusLine('ناموفق: ' + (e.message || e), true); toast('پشتیبان‌گیری ناموفق بود'); }
+    return false;
+  }
+}
+async function ghRestore() {
+  const c = ghCfg();
+  const owner = (($('#gh-owner') && $('#gh-owner').value) || c.owner || '').trim();
+  const repo = (($('#gh-repo') && $('#gh-repo').value) || c.repo || '').trim();
+  const token = (($('#gh-token') && $('#gh-token').value) || c.token || '').trim();
+  const pass = (($('#gh-pass') && $('#gh-pass').value) || c.pass || '').trim();
+  if (!pass) return toast('رمز رمزنگاری را وارد کن');
+  ghStatusLine('در حال خواندن از گیت‌هاب…');
+  try {
+    const env = await ghGetFile(owner, repo, token, 'backup/raha-backup.enc');
+    if (!env) { ghStatusLine('فایلی برای بازیابی پیدا نشد.', true); return; }
+    const data = await ghDecrypt(env, pass);
+    const cs = (data.checkins || []).length, js = (data.journal || []).length;
+    if (!confirm('بازیابی: ' + fa(cs) + ' چک‌این و ' + fa(js) + ' نوشته از گیت‌هاب خوانده شد.\nداده‌های فعلی این دستگاه با آن جایگزین می‌شود. مطمئنی؟')) {
+      ghStatusLine('بازیابی لغو شد.'); return;
+    }
+    const r = await api('/api/import', data);
+    if (r && r.state) STATE = r.state;
+    STATE._ciFilled = false;
+    await refresh();
+    ghStatusLine('بازیابی انجام شد ✓');
+    toast('بازیابی از گیت‌هاب انجام شد ✓', 3500);
+  } catch (e) {
+    ghStatusLine('رمز اشتباه است یا فایل خراب — ' + (e.message || e), true);
+  }
+}
+let ghAutoTimer = null;
+function ghScheduleAuto() {
+  const c = ghCfg();
+  if (c.auto === '0' || !c.token || !c.pass) return;
+  const last = c.last ? Date.parse(c.last) : 0;
+  const due = !last || (Date.now() - last > 20 * 3600 * 1000);
+  if (!due) return;
+  clearTimeout(ghAutoTimer);
+  ghAutoTimer = setTimeout(function () { ghBackup(true); }, 4000);
+}
+if ($('#gh-backup')) $('#gh-backup').onclick = function () { ghBackup(false); };
+if ($('#gh-restore')) $('#gh-restore').onclick = ghRestore;
+if ($('#gh-auto')) $('#gh-auto').onchange = function () {
+  ghSaveCfg({ auto: $('#gh-auto').checked ? '1' : '0' });
+  ghRenderCard();
+  toast($('#gh-auto').checked ? 'پشتیبان خودکار روشن شد' : 'پشتیبان خودکار خاموش شد');
+};
+['gh-owner', 'gh-repo', 'gh-token', 'gh-pass'].forEach(function (id) {
+  const el = $('#' + id); if (!el) return;
+  el.onchange = function () {
+    const patch = {}; patch[id.replace('gh-', '').replace('owner', 'owner').replace('repo', 'repo')] = el.value.trim();
+    ghSaveCfg(patch); ghRenderCard();
+  };
+});
 
 $('#rem-on').onchange = async () => {
   await api('/api/settings', {
