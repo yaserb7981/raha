@@ -1,5 +1,5 @@
 /* رها — Service Worker: آفلاین + نوتیفیکیشن */
-const CACHE = 'raha-v2';
+const CACHE = 'raha-v3';
 const SHELL = [
   './', './index.html', './app.css', './app.js', './engine.js', './manifest.webmanifest',
   './fonts/Vazirmatn-Regular.woff2', './fonts/Vazirmatn-Medium.woff2',
