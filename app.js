@@ -302,12 +302,13 @@ function drawUrgeChart(data) {
   const svg = $('#urge-chart');
   const W = 600, H = 180, pad = 10;
   if (!data || !data.length) {
-    svg.setAttribute('viewBox', '0 0 600 60');
-    svg.innerHTML = `<text x="300" y="34" text-anchor="middle" fill="#6b7297" font-size="13"
+    svg.setAttribute('viewBox', '0 0 600 180');
+    svg.style.height = '74px';
+    svg.innerHTML = `<text x="300" y="96" text-anchor="middle" fill="#6b7297" font-size="13"
       font-family="Vazirmatn">هنوز موجی ثبت نشده — با دکمهٔ «وسوسه شدم» اولین موج رو ثبت کن</text>`;
     return;
   }
-  svg.setAttribute('viewBox', '0 0 600 180');
+  svg.style.height = '';
   const n = data.length;
   const slots = Math.max(n, 14);                 // keep bars slim with few points
   const maxC = Math.max(1, ...data.map(d => d.count));
@@ -1300,4 +1301,16 @@ $('#import-file').onchange = async e => {
       && STATE.settings?.sync_server && STATE.settings?.sync_token && navigator.onLine) {
     setTimeout(() => doSync(false), 1200);
   }
+})();
+
+/* ── FABdim ── */
+(function () {
+  const fab = document.querySelector('.fab-sos');
+  if (!fab) return;
+  let t = null;
+  window.addEventListener('scroll', function () {
+    fab.classList.add('dim');
+    clearTimeout(t);
+    t = setTimeout(function () { fab.classList.remove('dim'); }, 900);
+  }, { passive: true });
 })();
